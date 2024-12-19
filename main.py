@@ -7,6 +7,13 @@ import os
 from dotenv import load_dotenv
 from model import predict
 
+def get_status_color(status):
+    return {
+        "NORMAL": "green",
+        "WARNING": "orange",
+        "CRITICAL": "red"
+    }.get(status, "gray")
+
 # Load environment variables from .env file
 load_dotenv()
 
@@ -291,50 +298,67 @@ def show_prediction_tab():
        
        predict_button = st.button("Predict Status")
        if predict_button:
-           input_data = {
-               'Grid_Voltage': grid_voltage,
-               'Cooling_Temperature': cooling_temp,
-               'CPU_Utilization': cpu_utilization,
-               'Memory_Usage': memory_usage,
-               'Bandwidth_Utilization': bandwidth_utilization,
-               'Throughput': throughput,
-               'Latency': latency,
-               'Jitter': jitter,
-               'Packet_Loss': packet_loss,
-               'Error_Rates': error_rates,
-               'Connection_Establishment_Termination_Times': connection_times,
-               'Network_Availability': network_availability,
-               'Transmission_Delay': transmission_delay,
-               'Network_Traffic_Volume': network_traffic_volume
-           }
-           
-           # Updated prediction criteria
-           prediction = "Normal" if all([ 
-               input_data['CPU_Utilization'] < 80,
-               input_data['Memory_Usage'] < 80,
-               input_data['Error_Rates'] < 5,
-               input_data['Bandwidth_Utilization'] < 90,
-               input_data['Packet_Loss'] < 2,
-               input_data['Network_Availability'] > 98,
-               input_data['Latency'] < 100,
-               input_data['Jitter'] < 30
-           ]) else "Abnormal"
-           
-           st.session_state.current_input_data = input_data
-           st.session_state.current_prediction = prediction
-           
-           st.markdown("### System Status: ")
-           if prediction == "Normal":
-               st.success("NORMAL")
-           else:
-               st.error("ABNORMAL")
-           
-           st.markdown("### Input Summary:")
-           st.dataframe(pd.DataFrame([input_data]))
-           
-           if st.button("Generate Report"):
-               st.session_state.current_tab = "Report Generator"
-               st.rerun()
+            # Get prediction from model (in correct order)
+            prediction = predict(
+                CPU_Utilization=cpu_utilization,
+                Memory_Usage=memory_usage,
+                Bandwidth_Utilization=bandwidth_utilization,
+                Throughput=throughput,
+                Latency=latency,
+                Jitter=jitter,
+                Packet_Loss=packet_loss,
+                Error_Rates=error_rates,
+                Connection_Establishment_Termination_Times=connection_times,
+                Network_Availability=network_availability,
+                Transmission_Delay=transmission_delay,
+                Grid_Voltage=grid_voltage,
+                Cooling_Temperature=cooling_temp,
+                Network_Traffic_Volume=network_traffic_volume
+            )
+            
+            # Map numerical prediction to status
+            status_mapping = {
+                0: "NORMAL",
+                1: "WARNING",
+                2: "CRITICAL"
+            }
+            status = status_mapping.get(prediction, "UNKNOWN")
+            
+            # Store current data in session state
+            st.session_state.current_input_data = {
+                'CPU_Utilization': cpu_utilization,
+                'Memory_Usage': memory_usage,
+                'Bandwidth_Utilization': bandwidth_utilization,
+                'Throughput': throughput,
+                'Latency': latency,
+                'Jitter': jitter,
+                'Packet_Loss': packet_loss,
+                'Error_Rates': error_rates,
+                'Connection_Establishment_Termination_Times': connection_times,
+                'Network_Availability': network_availability,
+                'Transmission_Delay': transmission_delay,
+                'Grid_Voltage': grid_voltage,
+                'Cooling_Temperature': cooling_temp,
+                'Network_Traffic_Volume': network_traffic_volume,
+                'System_State': status
+            }
+            st.session_state.current_prediction = status
+            
+            # Display prediction with color
+            st.markdown("### System Status:")
+            if status == "NORMAL":
+                st.success(status)
+            elif status == "WARNING":
+                st.warning(status)
+            else:
+                st.error(status)
+            
+            st.markdown("### Input Summary:")
+            st.dataframe(pd.DataFrame([st.session_state.current_input_data]))
+            
+            if st.button("Generate Report"):
+                st.session_state.current_tab = "Report Generator"
+                st.rerun()  
 
 def show_report_generator_tab():
     st.title("Report Generator")
@@ -364,19 +388,29 @@ def show_reports_tab():
 
     # Add search and filter options
     search_term = st.text_input("Search reports by content:")
-    status_filter = st.multiselect("Filter by System State:", ["Normal", "Abnormal"])
+    status_filter = st.multiselect("Filter by System State:", ["NORMAL", "WARNING", "CRITICAL"])
 
     filtered_reports = reports
     if search_term:
         filtered_reports = filtered_reports[
-            filtered_reports['System_State'].str.contains(search_term, case=False, na=False)
+            filtered_reports['report_text'].str.contains(search_term, case=False, na=False)
         ]
     if status_filter:
+        # Convert filter to match exact system states
         filtered_reports = filtered_reports[filtered_reports['System_State'].isin(status_filter)]
 
     # Display reports in an expandable format
     for _, report in filtered_reports.iterrows():
-        with st.expander(f"Report from {report['Date_and_Time']} - System State: {report['System_State']}"):
+        # Color code the expander based on system state
+        status_color = {
+            "NORMAL": "green",
+            "WARNING": "orange",
+            "CRITICAL": "red"
+        }.get(report['System_State'], "gray")
+        
+        with st.expander(
+            f"Report from {report['Date_and_Time']} - System State: {report['System_State']}"
+        ):
             # System Metrics Section
             st.markdown("### System Metrics")
             col1, col2 = st.columns(2)
@@ -413,7 +447,7 @@ def show_reports_tab():
                 st.text(report['report_text'])
 
             # Feedback Section
-            if report['feedback'] and pd.notna(report['feedback']):
+            if 'feedback' in report and pd.notna(report['feedback']):
                 st.markdown("### Additional Feedback")
                 st.text(report['feedback'])
 
@@ -425,53 +459,112 @@ def show_reports_tab():
 def show_qa_tab(model):
     st.title("Q&A System")
     
+    # Add option to choose between current or historical data
+    data_source = st.radio(
+        "Choose data source to query:",
+        ["Current Session", "Historical Reports", "All Data"]
+    )
+    
     user_question = st.text_input("Ask a question about the system status:")
     
     if user_question:
-        if st.session_state.current_input_data and st.session_state.current_prediction:
-            system_context = f"""
-            You are a helpful system monitoring assistant. Here is the current system information:
+        context_data = ""
+        
+        if data_source == "Current Session":
+            if not st.session_state.current_input_data:
+                st.warning("No current session data available. Please generate a prediction first or choose 'Historical Reports'.")
+                return
             
+            current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            context_data = f"""Current Session Data:
+            Time: {current_time}
             System Status: {st.session_state.current_prediction}
-            Date and Time: {st.session_state.current_input_data['Date_and_Time']}
             CPU Utilization: {st.session_state.current_input_data['CPU_Utilization']}%
             Memory Usage: {st.session_state.current_input_data['Memory_Usage']}%
             Bandwidth Utilization: {st.session_state.current_input_data['Bandwidth_Utilization']} Mbps
-            Throughput: {st.session_state.current_input_data['Throughput']} Mbps
-            Latency: {st.session_state.current_input_data['Latency']} ms
-            Jitter: {st.session_state.current_input_data['Jitter']} ms
-            Packet Loss: {st.session_state.current_input_data['Packet_Loss']}%
-            Error Rates: {st.session_state.current_input_data['Error_Rates']}%
-            Connection Establishment/Termination Times: {st.session_state.current_input_data['Connection_Establishment_Termination_Times']} ms
-            Network Availability: {st.session_state.current_input_data['Network_Availability']}%
-            Transmission Delay: {st.session_state.current_input_data['Transmission_Delay']} ms
-            Grid Voltage: {st.session_state.current_input_data['Grid_Voltage']} V
-            Cooling Temperature: {st.session_state.current_input_data['Cooling_Temperature']}°C
             Network Traffic Volume: {st.session_state.current_input_data['Network_Traffic_Volume']} GB
-            System State: {st.session_state.current_input_data['System_State']}
-
-            The system is considered abnormal if any of these conditions are met:
-            - CPU Utilization >= 80%
-            - Memory Usage >= 80%
-            - Latency >= 200 ms
-            - Packet Loss >= 1%
-            - Error Rates >= 5%
-            - Transmission Delay >= 100 ms
-            - Network Availability < 99.9%
-
-            Please provide a natural, conversational response to this question: {user_question}
-            """
+            System State: {st.session_state.current_input_data['System_State']}"""
             
-            try:
+        elif data_source == "Historical Reports" or data_source == "All Data":
+            # Get historical data from database
+            reports = get_saved_reports()
+            if reports.empty:
+                st.warning("No historical reports found in the database.")
+                return
+                
+            # Format historical data
+            historical_context = "\nHistorical Reports:\n"
+            for idx, report in reports.iterrows():
+                historical_context += f"""
+                Report {idx + 1} - {report['Date_and_Time']}:
+                System State: {report['System_State']}
+                CPU Utilization: {report['CPU_Utilization']}%
+                Memory Usage: {report['Memory_Usage']}%
+                Bandwidth Utilization: {report['Bandwidth_Utilization']} Mbps
+                Network Traffic Volume: {report['Network_Traffic_Volume']} Mbps
+                Error Rates: {report['Error_Rates']}%
+                Network Availability: {report['Network_Availability']}%
+                """
+            
+            context_data = historical_context
+            
+            # Add current session data if "All Data" is selected
+            if data_source == "All Data" and st.session_state.current_input_data:
+                current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                current_context = f"""
+                Current Session Data:
+                Time: {current_time}
+                System Status: {st.session_state.current_prediction}
+                CPU Utilization: {st.session_state.current_input_data['CPU_Utilization']}%
+                Memory Usage: {st.session_state.current_input_data['Memory_Usage']}%
+                Bandwidth Utilization: {st.session_state.current_input_data['Bandwidth_Utilization']} Mbps
+                Network Traffic Volume: {st.session_state.current_input_data['Network_Traffic_Volume']} GB
+                System State: {st.session_state.current_input_data['System_State']}"""
+                context_data = current_context + "\n" + context_data
+
+        system_context = f"""
+        You are a helpful system monitoring assistant. Here is the available system information:
+
+        {context_data}
+
+        The system is considered abnormal if any of these conditions are met:
+        - CPU Utilization >= 80%
+        - Memory Usage >= 80%
+        - Latency >= 200 ms
+        - Packet Loss >= 1%
+        - Error Rates >= 5%
+        - Transmission Delay >= 100 ms
+        - Network Availability < 99.9%
+
+        When analyzing trends or comparing data, please consider both historical and current data if available.
+        Please provide a natural, conversational response to this question: {user_question}
+        
+        If asked about trends or patterns, analyze the data across different time periods.
+        If asked about specific metrics, provide relevant comparisons when possible.
+        If asked about system health, consider both current and historical states to provide context.
+        """
+        
+        try:
+            with st.spinner("Analyzing data and generating response..."):
                 response = model.generate_content(system_context)
                 cleaned_response = response.text.replace('*', '').strip()
                 st.markdown("### Answer:")
                 st.write(cleaned_response)
                 
-            except Exception as e:
-                st.error(f"Error generating response: {str(e)}")
-        else:
-            st.warning("Please generate a prediction first!")
+        except Exception as e:
+            st.error(f"Error generating response: {str(e)}")
+
+def get_saved_reports():
+    """Helper function to get reports from database"""
+    conn = sqlite3.connect('system_reports.db')
+    try:
+        reports = pd.read_sql_query("SELECT * FROM reports", conn)
+        return reports
+    except Exception as e:
+        st.error(f"Error reading from database: {e}")
+        return pd.DataFrame()  # Return empty DataFrame on error
+    finally:
+        conn.close()
 
 def main():
     st.set_page_config(page_title="System Status Predictor", layout="wide")
@@ -494,25 +587,9 @@ def main():
     
     # Show appropriate tab
     if st.session_state.current_tab == "Prediction":
-        show_prediction_tab(
-            # columns=[
-            #     "Date_and_Time", "CPU_Utilization", "Memory_Usage", "Bandwidth_Utilization", 
-            #     "Throughput", "Latency", "Jitter", "Packet_Loss", "Error_Rates", 
-            #     "Connection_Establishment_Termination_Times", "Network_Availability", 
-            #     "Transmission_Delay", "Grid_Voltage", "Cooling_Temperature", 
-            #     "Network_Traffic_Volume", "System_State"
-            # ]
-        )
+        show_prediction_tab()
     elif st.session_state.current_tab == "Report Generator":
-        show_report_generator_tab(
-            # columns=[
-            #     "Date_and_Time", "CPU_Utilization", "Memory_Usage", "Bandwidth_Utilization", 
-            #     "Throughput", "Latency", "Jitter", "Packet_Loss", "Error_Rates", 
-            #     "Connection_Establishment_Termination_Times", "Network_Availability", 
-            #     "Transmission_Delay", "Grid_Voltage", "Cooling_Temperature", 
-            #     "Network_Traffic_Volume", "System_State"
-            # ]
-        )
+        show_report_generator_tab()
     elif st.session_state.current_tab == "Q&A":
         show_qa_tab(model)
     elif st.session_state.current_tab == "View Reports":
