@@ -923,8 +923,10 @@ def main(username):
     # Initialize session state
     if 'current_tab' not in st.session_state:
         st.session_state.current_tab = "Prediction"
+        
     if 'current_input_data' not in st.session_state:
         st.session_state.current_input_data = None
+        
     if 'current_prediction' not in st.session_state:
         st.session_state.current_prediction = None
     
