@@ -610,6 +610,21 @@ def show_reports_tab(current_username):
                 key_points.append(point)
         return key_points
 
+    def get_trust_warning(trust_score, total_votes):
+        """Return appropriate warning message based on trust score and vote count"""
+        if total_votes >= 10:  # Significant number of votes
+            if trust_score < 30:
+                return ("🚫 Highly Untrusted Report", "red", 
+                       "This report has been flagged as potentially unreliable by multiple users.")
+            elif trust_score < 50:
+                return ("⚠️ Low Trust Report", "orange",
+                       "This report has received mixed feedback from users.")
+        elif total_votes >= 5:  # Moderate number of votes
+            if trust_score < 40:
+                return ("⚠️ Warning: Low Trust Score", "orange",
+                       "This report has received several negative ratings.")
+        return None
+    
     # Display reports in an expandable format
     for idx, report in filtered_reports.iterrows():
         system_state_color = {
@@ -622,16 +637,18 @@ def show_reports_tab(current_username):
         issue_color = "green" if issue_status == "RESOLVED" else "red"
         
         total_votes = report['upvotes'] + report['downvotes']
+        trust_score = (report['upvotes'] / total_votes * 100) if total_votes > 0 else 100
+        
         if total_votes > 0:
             downvote_percentage = (report['downvotes'] / total_votes) * 100
             is_trustworthy = downvote_percentage <= 50
         else:
             is_trustworthy = True 
-        
-        # Modified header to include username
+
         username = report.get('username', 'Unknown User')
         header = (
-            f"<div style='display: flex; justify-content: space-between; align-items: center; padding: 10px;'>"
+            f"<div style='display: flex; flex-direction: column; padding: 10px;'>"
+            f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
             f"<div>"
             f"<span style='font-weight: bold; margin-right: 15px;'>Report by: {username}</span>"
             f"<span>Date: {report['Date_and_Time']}</span>"
@@ -643,14 +660,19 @@ def show_reports_tab(current_username):
             f"</div>"
         )
         
-        if not is_trustworthy and total_votes >= 5:  # Only show warning if there are at least 5 votes
-            header += f"<span style='color: red; margin-right: 15px; font-weight: bold;'>⚠️ Low Trust Report</span>"
+        if total_votes > 0:
+            trust_warning = get_trust_warning(trust_score, total_votes)
+            if trust_warning:
+                warning_icon, warning_color, warning_message = trust_warning
+                header += (
+                    f"<div style='margin-top: 10px; padding: 8px; background-color: rgba(255,0,0,0.1); "
+                    f"border-left: 4px solid {warning_color}; margin-bottom: 10px;'>"
+                    f"<span style='color: {warning_color}; font-weight: bold;'>{warning_icon}</span> "
+                    f"<span style='color: {warning_color};'>{warning_message}</span>"
+                    f"</div>"
+                )
         
-        header += (
-            f"<span style='color: {issue_color};'>"
-            f"</div>"
-            f"</div>"
-        )
+        header += "</div>"
         
         st.markdown(header, unsafe_allow_html=True)
         
