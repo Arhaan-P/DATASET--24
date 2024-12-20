@@ -412,18 +412,23 @@ def summarize_feedback(feedback_text, model):
         return [], "UNRESOLVED"
         
     prompt = f"""
-    Analyze this system feedback and:
-    1. Extract key points as bullet points (maximum 5 points)
-    2. Determine if the issues are RESOLVED or UNRESOLVED based on the content
+    Analyze this system feedback and determine if the issues described are RESOLVED or UNRESOLVED.
     
-    Feedback text:
+    Rules for determining status:
+    - RESOLVED: Feedback indicates problems have been fixed, solutions implemented, or normal operation restored
+    - UNRESOLVED: Feedback describes ongoing issues, problems requiring attention, or pending actions
+    
+    If there's any uncertainty or ongoing issues mentioned, mark as UNRESOLVED.
+    
+    Feedback to analyze:
     {feedback_text}
     
-    Format response as:
-    STATUS: RESOLVED or UNRESOLVED
-    POINTS:
-    - point 1
-    - point 2
+    Respond in this exact format:
+    STATUS: [RESOLVED/UNRESOLVED]
+    REASONING: [Brief explanation of status determination]
+    KEY POINTS:
+    - [point 1]
+    - [point 2]
     etc.
     """
     
@@ -431,19 +436,65 @@ def summarize_feedback(feedback_text, model):
         response = model.generate_content(prompt)
         content = response.text.strip()
         
-        # Parse the response
-        status_line = content.split('\n')[0]
-        status = "RESOLVED" if "RESOLVED" in status_line else "UNRESOLVED"
+        # Split content into sections
+        sections = content.split('\n')
+        
+        # Extract status with explicit check
+        status_line = next((line for line in sections if line.startswith('STATUS:')), '')
+        status = "UNRESOLVED"  # Default to UNRESOLVED
+        
+        if "STATUS:" in status_line:
+            status_value = status_line.split('STATUS:')[1].strip().upper()
+            # Only set as RESOLVED if explicitly stated
+            if status_value == "RESOLVED":
+                status = "RESOLVED"
         
         # Extract bullet points
-        points = [point.strip('- ').strip() 
-                 for point in content.split('\n') 
-                 if point.strip().startswith('-')]
+        points = []
+        key_points_started = False
+        for line in sections:
+            if 'KEY POINTS:' in line:
+                key_points_started = True
+                continue
+            if key_points_started and line.strip().startswith('-'):
+                point = line.strip('- ').strip()
+                if point:
+                    points.append(point)
+        
+        # If no points were extracted, include the reasoning
+        if not points:
+            reasoning_line = next((line for line in sections if line.startswith('REASONING:')), '')
+            if reasoning_line:
+                points = [reasoning_line.split('REASONING:')[1].strip()]
         
         return points, status
+        
     except Exception as e:
         st.error(f"Error summarizing feedback: {e}")
         return [feedback_text], "UNRESOLVED"
+
+def preview_feedback_status(feedback, summary_points, status):
+    """
+    Generate a detailed preview of the feedback analysis
+    """
+    status_color = "green" if status == "RESOLVED" else "red"
+    status_icon = "✓" if status == "RESOLVED" else "!"
+    
+    return f"""
+    <div style="padding: 20px; border-radius: 5px; border: 1px solid {status_color}; background-color: rgba({255 if status == 'RESOLVED' else 255}, {255 if status == 'RESOLVED' else 0}, 0, 0.1);">
+        <h4 style="color: {status_color}; margin-top: 0;">
+            {status_icon} Status: {status}
+        </h4>
+        <h5>Analysis Summary:</h5>
+        {''.join(f"<p style='margin: 5px 0;'>• {point}</p>" for point in summary_points)}
+        <div style="margin-top: 15px; padding-top: 10px; border-top: 1px solid #eee;">
+            <details>
+                <summary style="cursor: pointer;">Original Feedback</summary>
+                <p style="margin-top: 10px; white-space: pre-wrap;">{feedback}</p>
+            </details>
+        </div>
+    </div>
+    """
 
 def show_reports_tab():
     st.title("Saved Reports")
