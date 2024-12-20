@@ -1,91 +1,138 @@
 # Streamlining Incident Documentation in NOCs
 
 **Problem Statement:**  
-Incident documentation in Network Operations Centers (NOCs) is often time-consuming and inconsistent, leading to inefficient knowledge transfer. This project aims to explore and implement solutions to streamline the documentation process, making it more comprehensive and insightful.
+Incident documentation in Network Operations Centers (NOCs) is often time-consuming and inconsistent, leading to inefficient knowledge transfer. This project implements an intelligent system monitoring solution with real-time analysis, automated reporting, and collaborative features.
 
 ## Features
-- **Automation:** Automatically capture and document incidents with relevant details.
-- **Consistency:** Standardized templates to ensure consistent documentation.
-- **Insights:** Analytics to identify patterns and improve incident response.
-- **Collaboration:** Tools for better communication and knowledge sharing among team members.
+- **User Authentication System**
+  - Secure login and registration
+  - Session management
+  - User-specific report tracking
 
-## Approach
-1. **Understanding the Problem:**
-   - Analyzed current challenges in incident documentation within NOCs.
-   - Identified inefficiencies in knowledge transfer and documentation processes.
+- **Intelligent System Monitoring**
+  - Real-time system status prediction
+  - Comprehensive metric tracking (CPU, Memory, Network, etc.)
+  - Automated anomaly detection
+  - Status classification (Normal, Warning, Critical)
 
-2. **Research & Design:**
-   - Explored best practices and existing tools for incident documentation.
-   - Designed a solution focusing on automation, standardization, and actionable insights.
+- **Advanced Reporting**
+  - Automated report generation
+  - Custom report editing
+  - Feedback analysis using Google's Gemini AI
+  - Issue status tracking (Resolved/Unresolved)
+  - Report voting system with trust scores
 
-3. **Development:**
-   - Implemented the solution using Python for backend processing.
-   - Used Flask for web integration, allowing easy access and updates.
-   - Integrated logging frameworks to ensure real-time data capture.
+- **Interactive Q&A System**
+  - AI-powered query system using Gemini Pro
+  - Context-aware responses
+  - Historical data analysis
+  - Trend identification
 
-4. **Evaluation:**
-   - Tested the solution with synthetic incident scenarios.
-   - Gathered feedback from simulated users to improve usability.
+- **Data Management**
+  - SQLite database for persistent storage
+  - Historical data tracking
+  - Search and filtering capabilities
+  - Report deletion and management
 
 ## Key Technologies
-- **Flask:** For building the web interface and API.
-- **Python Logging:** To capture incident details in real-time.
-- **Data Visualization Tools:** For providing actionable insights and analytics.
+- **Streamlit:** Web interface and interactive components
+- **SQLite:** Database management
+- **Google Gemini AI:** Natural language processing and Q&A system
+- **Python Libraries:**
+  - pandas: Data manipulation and analysis
+  - python-dotenv: Environment variable management
+  - streamlit: Web application framework
 
-## Outcomes
-- Reduced time for incident documentation.
-- Improved consistency and clarity in documented incidents.
-- Enhanced knowledge transfer through insightful reports and analytics.
-
-## Future Work
-- Incorporate AI for natural language generation to draft incident reports.
-- Add integrations with existing NOC tools like ServiceNow or PagerDuty.
-- Develop a mobile app for real-time documentation on the go.
-
-## Getting Started
-### Prerequisites
+## Prerequisites
 - Python 3.8+
-- Flask framework
+- Google API key for Gemini AI
+- Required Python packages (see requirements.txt)
 
-### Installation
+## Installation
+
 1. Clone the repository:
    ```bash
    git clone https://github.com/your-username/incident-docs-noc.git
    cd incident-docs-noc
    ```
-2. Install dependencies:
-  ```bash
-  pip install -r requirements.txt
-  ```
-3. Run the application:
-```bash
-  streamlit main.py
-```
-4. Alternatively, you can access it via StreamLit Cloud
-`https://deathabyte.streamlit.app/`
+
+2. Create and configure environment variables:
+   ```bash
+   cp .env.example .env
+   # Edit .env and add your Google API key
+   GOOGLE_API_KEY=your_api_key_here
+   ```
+
+3. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Run the application:
+   ```bash
+   streamlit run login.py
+   ```
+
+## Usage Guide
+
+### Authentication
+1. Register a new account or login with existing credentials
+2. System maintains session state for authenticated users
+
+### System Monitoring
+1. Input system metrics in the Prediction tab
+2. View real-time status predictions
+3. Generate detailed system reports
+
+### Report Management
+1. Edit and customize generated reports
+2. Add feedback and observations
+3. View AI-generated feedback analysis
+4. Vote on reports for quality assessment
+5. Filter and search through historical reports
+
+### Q&A System
+1. Choose data source (Current Session/Historical/All Data)
+2. Ask questions about system status
+3. Receive AI-powered responses with context-aware analysis
+
+## Report Trust System
+- Reports receive upvotes and downvotes from users
+- Trust scores calculated based on voting patterns
+- Visual indicators for low-trust reports
+- Warning system for potentially unreliable information
 
 ## Contributing
-We welcome contributions to improve this project! If you’d like to contribute, please follow these steps:
+We welcome contributions! Please follow these steps:
 
-1. **Fork the repository** - Create a personal copy of the project by forking it.
-2. **Clone the repository** - Clone your fork to your local machine:
+1. Fork the repository
+2. Create your feature branch:
    ```bash
-   git clone https://github.com/your-username/incident-docs-noc.git
+   git checkout -b feature/AmazingFeature
    ```
-3. Create a new branch - Create a new branch for your changes:
+3. Commit your changes:
    ```bash
-   git checkout -b feature-branch
+   git commit -m 'Add some AmazingFeature'
    ```
-4. Make changes - Make your desired changes to the code.
-5. Commit your changes - Commit your changes with clear, concise commit messages:
+4. Push to the branch:
    ```bash
-    git commit -m "Add feature"
+   git push origin feature/AmazingFeature
    ```
-6. Push changes - Push your changes to your fork:
-  ```bash
-  git push origin feature-branch
-  ```
-7. Create a Pull Request - Submit a pull request to the main repository.
+5. Open a Pull Request
+
+## Dependencies
+```
+streamlit>=1.10.0
+pandas>=1.4.0
+google-generativeai>=0.3.0
+python-dotenv>=0.19.0
+sqlite3
+```
 
 ## License
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+- Google Gemini AI for natural language processing
+- Streamlit for the web framework
+- Contributors and maintainers
