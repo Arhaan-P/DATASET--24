@@ -35,9 +35,10 @@ def create_database():
     table_exists = c.fetchone() is not None
     
     if not table_exists:
-        # Create new table with all columns
-      c.execute('''CREATE TABLE reports
+        # Create new table with voting columns
+        c.execute('''CREATE TABLE reports
              (id INTEGER PRIMARY KEY AUTOINCREMENT,
+              username TEXT,
               Date_and_Time TEXT,
               CPU_Utilization INTEGER,
               Memory_Usage INTEGER,
@@ -55,18 +56,99 @@ def create_database():
               Network_Traffic_Volume REAL,
               System_State TEXT,
               report_text TEXT,
-              feedback TEXT)''')
+              feedback TEXT,
+              upvotes INTEGER DEFAULT 0,
+              downvotes INTEGER DEFAULT 0)''')
     else:
-        # Check if feedback column exists
+        # Check if voting columns exist
         c.execute("PRAGMA table_info(reports)")
         columns = [column[1] for column in c.fetchall()]
         
-        if 'feedback' not in columns:
-            # Add feedback column to existing table
-            c.execute('ALTER TABLE reports ADD COLUMN feedback TEXT')
+        if 'upvotes' not in columns:
+            c.execute('ALTER TABLE reports ADD COLUMN upvotes INTEGER DEFAULT 0')
+        if 'downvotes' not in columns:
+            c.execute('ALTER TABLE reports ADD COLUMN downvotes INTEGER DEFAULT 0')
+    
+    # Create votes tracking table if it doesn't exist
+    c.execute("""SELECT name FROM sqlite_master 
+                 WHERE type='table' AND name='user_votes'""")
+    votes_table_exists = c.fetchone() is not None
+    
+    if not votes_table_exists:
+        c.execute('''CREATE TABLE user_votes
+                    (username TEXT,
+                     report_id INTEGER,
+                     vote_type TEXT,
+                     PRIMARY KEY (username, report_id))''')
     
     conn.commit()
     conn.close()
+    
+def update_vote(report_id, username, vote_type):
+    conn = sqlite3.connect('system_reports.db')
+    c = conn.cursor()
+    
+    try:
+        # Check if user has already voted
+        c.execute("""SELECT vote_type FROM user_votes 
+                    WHERE username = ? AND report_id = ?""", 
+                    (username, report_id))
+        existing_vote = c.fetchone()
+        
+        if existing_vote:
+            old_vote_type = existing_vote[0]
+            if old_vote_type == vote_type:
+                # User is trying to vote the same way again, remove their vote
+                c.execute("""DELETE FROM user_votes 
+                           WHERE username = ? AND report_id = ?""",
+                           (username, report_id))
+                
+                if vote_type == 'upvote':
+                    c.execute("""UPDATE reports 
+                               SET upvotes = upvotes - 1 
+                               WHERE id = ?""", (report_id,))
+                else:
+                    c.execute("""UPDATE reports 
+                               SET downvotes = downvotes - 1 
+                               WHERE id = ?""", (report_id,))
+            else:
+                # User is changing their vote
+                c.execute("""UPDATE user_votes 
+                           SET vote_type = ? 
+                           WHERE username = ? AND report_id = ?""",
+                           (vote_type, username, report_id))
+                
+                if vote_type == 'upvote':
+                    c.execute("""UPDATE reports 
+                               SET upvotes = upvotes + 1, 
+                                   downvotes = downvotes - 1 
+                               WHERE id = ?""", (report_id,))
+                else:
+                    c.execute("""UPDATE reports 
+                               SET upvotes = upvotes - 1, 
+                                   downvotes = downvotes + 1 
+                               WHERE id = ?""", (report_id,))
+        else:
+            # New vote
+            c.execute("""INSERT INTO user_votes (username, report_id, vote_type)
+                        VALUES (?, ?, ?)""", (username, report_id, vote_type))
+            
+            if vote_type == 'upvote':
+                c.execute("""UPDATE reports 
+                           SET upvotes = upvotes + 1 
+                           WHERE id = ?""", (report_id,))
+            else:
+                c.execute("""UPDATE reports 
+                           SET downvotes = downvotes + 1 
+                           WHERE id = ?""", (report_id,))
+        
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        print(f"Database error: {e}")
+        return False
+    finally:
+        conn.close()
 
 def show_reports_tab():
     st.title("Saved Reports")
@@ -200,7 +282,7 @@ Recommended Actions:
 {remediation}
 """
     return report
-def save_report_to_db(input_data, prediction, report_text, feedback, model):
+def save_report_to_db(input_data, prediction, report_text, feedback, model, username):
     """
     Save system report to database with summarized feedback and status
     """
@@ -224,13 +306,14 @@ def save_report_to_db(input_data, prediction, report_text, feedback, model):
             c.execute('ALTER TABLE reports ADD COLUMN issue_status TEXT')
         
         c.execute('''INSERT INTO reports 
-                 (Date_and_Time, CPU_Utilization, Memory_Usage, Bandwidth_Utilization,
+                 (username, Date_and_Time, CPU_Utilization, Memory_Usage, Bandwidth_Utilization,
                   Throughput, Latency, Jitter, Packet_Loss, Error_Rates,
                   Connection_Establishment_Termination_Times, Network_Availability,
                   Transmission_Delay, Grid_Voltage, Cooling_Temperature,
                   Network_Traffic_Volume, System_State, report_text, feedback, issue_status)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-                 (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                 (username,
+                  datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                   input_data['CPU_Utilization'],
                   input_data['Memory_Usage'],
                   input_data['Bandwidth_Utilization'],
@@ -367,29 +450,27 @@ def show_prediction_tab():
                 st.session_state.current_tab = "Report Generator"
                 st.rerun()  
 
-def show_report_generator_tab():
-    st.title("Report Generator")
+def show_report_generator_tab(username):
     if st.session_state.current_input_data and st.session_state.current_prediction:
         report_text = generate_report_text(st.session_state.current_input_data, 
-                                        st.session_state.current_prediction)
+                                           st.session_state.current_prediction)
         
         edited_report = st.text_area("Edit Report", report_text, height=400)
         
-        # Add feedback text box
         feedback = st.text_area("Additional Notes and Feedback", 
-                              placeholder="Enter any additional observations, comments, or feedback about the system status...",
-                              height=150)
+                                placeholder="Enter any additional observations, comments, or feedback about the system status...",
+                                height=150)
         
         if st.button("Save Report"):
-            model = configure_genai()  # Get the model instance
+            model = configure_genai()
             save_report_to_db(st.session_state.current_input_data,
-                            st.session_state.current_prediction,
-                            edited_report,
-                            feedback,
-                            model)
+                              st.session_state.current_prediction,
+                              edited_report,
+                              feedback,
+                              model,
+                              username)  # Pass username to save_report_to_db
             st.success("Report saved successfully!")
             
-            # Preview the summarized feedback
             if feedback:
                 summary_points, status = summarize_feedback(feedback, model)
                 status_color = "green" if status == "RESOLVED" else "red"
@@ -403,7 +484,7 @@ def show_report_generator_tab():
                 """, unsafe_allow_html=True)
     else:
         st.warning("Please generate a prediction first!")
-
+        
 def summarize_feedback(feedback_text, model):
     """
     Summarize feedback into bullet points and determine issue status using Gemini
@@ -496,7 +577,7 @@ def preview_feedback_status(feedback, summary_points, status):
     </div>
     """
 
-def show_reports_tab():
+def show_reports_tab(current_username):
     st.title("Saved Reports")
     reports = get_saved_reports()
 
@@ -540,17 +621,59 @@ def show_reports_tab():
         issue_status = report.get('issue_status', 'UNRESOLVED')
         issue_color = "green" if issue_status == "RESOLVED" else "red"
         
+        total_votes = report['upvotes'] + report['downvotes']
+        if total_votes > 0:
+            downvote_percentage = (report['downvotes'] / total_votes) * 100
+            is_trustworthy = downvote_percentage <= 50
+        else:
+            is_trustworthy = True 
+        
+        # Modified header to include username
+        username = report.get('username', 'Unknown User')
         header = (
             f"<div style='display: flex; justify-content: space-between; align-items: center; padding: 10px;'>"
-            f"<span>Report from {report['Date_and_Time']}</span>"
-            f"<span>"
+            f"<div>"
+            f"<span style='font-weight: bold; margin-right: 15px;'>Report by: {username}</span>"
+            f"<span>Date: {report['Date_and_Time']}</span>"
+            f"</div>"
+            f"<div>"
             f"<span style='color: {system_state_color}; margin-right: 15px;'>System: {report['System_State']}</span>"
             f"<span style='color: {issue_color};'>Status: {issue_status}</span>"
-            f"</span>"
+            f"</div>"
+            f"</div>"
+        )
+        
+        if not is_trustworthy and total_votes >= 5:  # Only show warning if there are at least 5 votes
+            header += f"<span style='color: red; margin-right: 15px; font-weight: bold;'>⚠️ Low Trust Report</span>"
+        
+        header += (
+            f"<span style='color: {issue_color};'>"
+            f"</div>"
             f"</div>"
         )
         
         st.markdown(header, unsafe_allow_html=True)
+        
+         # Add voting buttons and display vote counts
+        col1, col2, col3 = st.columns([1, 1, 8])
+        with col1:
+            if st.button("👍", key=f"upvote_{report['id']}"):
+                if update_vote(report['id'], current_username, 'upvote'):
+                    st.rerun()
+            st.write(f"{report['upvotes']} upvotes")
+            
+        with col2:
+            if st.button("👎", key=f"downvote_{report['id']}"):
+                if update_vote(report['id'], current_username, 'downvote'):
+                    st.rerun()
+            st.write(f"{report['downvotes']} downvotes")
+        
+        # Add trust score bar
+        if total_votes > 0:
+            trust_score = (report['upvotes'] / total_votes) * 100
+            with col3:
+                st.progress(trust_score / 100)
+                st.write(f"Trust Score: {trust_score:.1f}% ({total_votes} votes)")
         
         with st.expander("View Details"):
             # System Metrics Section
@@ -757,7 +880,7 @@ def get_saved_reports():
     finally:
         conn.close()
 
-def main():
+def main(username):
     st.set_page_config(page_title="System Status Predictor", layout="wide")
     
     # Initialize session state
@@ -780,11 +903,8 @@ def main():
     if st.session_state.current_tab == "Prediction":
         show_prediction_tab()
     elif st.session_state.current_tab == "Report Generator":
-        show_report_generator_tab()
+        show_report_generator_tab(username)
     elif st.session_state.current_tab == "Q&A":
         show_qa_tab(model)
     elif st.session_state.current_tab == "View Reports":
-        show_reports_tab()
-
-if __name__ == "__main__":
-    main()
+        show_reports_tab(username)
