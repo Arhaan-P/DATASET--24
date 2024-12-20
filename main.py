@@ -580,11 +580,6 @@ def show_reports_tab():
                                     
                 st.markdown(summary_html, unsafe_allow_html=True)
 
-            if st.button("Delete Report", key=f"delete_{report['id']}"):
-                delete_report(report['id'])
-                st.success("Report deleted successfully!")
-                st.rerun()
-
         # Original Feedback Section (at same level as main expander)
         if 'feedback' in report and pd.notna(report['feedback']):
             with st.expander("View Original Feedback"):
@@ -592,9 +587,15 @@ def show_reports_tab():
                     st.markdown(original_text)
                 else:
                     st.markdown(original_feedback)
+                    
+        # Delete button moved here, after the View Original Feedback expander
+        if st.button("Delete Report", key=f"delete_{report['id']}", type="secondary"):
+            delete_report(report['id'])
+            st.success("Report deleted successfully!")
+            st.rerun()
 
         st.markdown("---")  # Add separator between reports
-
+        
 def show_qa_tab(model):
     st.title("Q&A System")
     
