@@ -200,49 +200,56 @@ Recommended Actions:
 {remediation}
 """
     return report
-def save_report_to_db(input_data, prediction, report_text, feedback):
+def save_report_to_db(input_data, prediction, report_text, feedback, model):
     """
-    Save system report to database with updated column names.
-    
-    Parameters:
-    input_data (dict): Dictionary containing system metrics
-    prediction (str): System state prediction
-    report_text (str): Generated report text
-    feedback (str): Additional feedback and notes
+    Save system report to database with summarized feedback and status
     """
     try:
-        # Connect to SQLite database
+        # Generate feedback summary and status
+        summary_points, issue_status = summarize_feedback(feedback, model)
+        
+        # Format summary points as a string
+        formatted_summary = "\n".join(f"• {point}" for point in summary_points)
+        
+        # Add status to the feedback
+        feedback_with_status = f"Status: {issue_status}\n\nKey Points:\n{formatted_summary}\n\nOriginal Feedback:\n{feedback}"
+        
         conn = sqlite3.connect('system_reports.db')
         c = conn.cursor()
         
-        # Insert data into the reports table
+        # Modify the table to include issue_status if it doesn't exist
+        c.execute("PRAGMA table_info(reports)")
+        columns = [column[1] for column in c.fetchall()]
+        if 'issue_status' not in columns:
+            c.execute('ALTER TABLE reports ADD COLUMN issue_status TEXT')
+        
         c.execute('''INSERT INTO reports 
                  (Date_and_Time, CPU_Utilization, Memory_Usage, Bandwidth_Utilization,
                   Throughput, Latency, Jitter, Packet_Loss, Error_Rates,
                   Connection_Establishment_Termination_Times, Network_Availability,
                   Transmission_Delay, Grid_Voltage, Cooling_Temperature,
-                  Network_Traffic_Volume, System_State, report_text, feedback)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-              (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-               input_data['CPU_Utilization'],
-               input_data['Memory_Usage'],
-               input_data['Bandwidth_Utilization'],
-               input_data['Throughput'],
-               input_data['Latency'],
-               input_data['Jitter'],
-               input_data['Packet_Loss'],
-               input_data['Error_Rates'],
-               input_data['Connection_Establishment_Termination_Times'],
-               input_data['Network_Availability'],
-               input_data['Transmission_Delay'],
-               input_data['Grid_Voltage'],
-               input_data['Cooling_Temperature'],
-               input_data['Network_Traffic_Volume'],
-               prediction,
-               report_text,
-               feedback))
+                  Network_Traffic_Volume, System_State, report_text, feedback, issue_status)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                 (datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                  input_data['CPU_Utilization'],
+                  input_data['Memory_Usage'],
+                  input_data['Bandwidth_Utilization'],
+                  input_data['Throughput'],
+                  input_data['Latency'],
+                  input_data['Jitter'],
+                  input_data['Packet_Loss'],
+                  input_data['Error_Rates'],
+                  input_data['Connection_Establishment_Termination_Times'],
+                  input_data['Network_Availability'],
+                  input_data['Transmission_Delay'],
+                  input_data['Grid_Voltage'],
+                  input_data['Cooling_Temperature'],
+                  input_data['Network_Traffic_Volume'],
+                  prediction,
+                  report_text,
+                  feedback_with_status,
+                  issue_status))
         
-        # Commit the changes and close the connection
         conn.commit()
     except sqlite3.Error as e:
         print(f"Database error: {e}")
@@ -252,7 +259,7 @@ def save_report_to_db(input_data, prediction, report_text, feedback):
         raise
     finally:
         conn.close()
-
+        
 def get_saved_reports():
     conn = sqlite3.connect('system_reports.db')
     reports = pd.read_sql_query("SELECT * FROM reports", conn)
@@ -374,21 +381,82 @@ def show_report_generator_tab():
                               height=150)
         
         if st.button("Save Report"):
+            model = configure_genai()  # Get the model instance
             save_report_to_db(st.session_state.current_input_data,
                             st.session_state.current_prediction,
                             edited_report,
-                            feedback)
+                            feedback,
+                            model)
             st.success("Report saved successfully!")
+            
+            # Preview the summarized feedback
+            if feedback:
+                summary_points, status = summarize_feedback(feedback, model)
+                status_color = "green" if status == "RESOLVED" else "red"
+                
+                st.markdown(f"""
+                <div style="padding: 20px; border-radius: 5px; border: 1px solid {status_color};">
+                    <h4 style="color: {status_color};">Status: {status}</h4>
+                    <h5>Feedback Summary:</h5>
+                    {''.join(f"<p>• {point}</p>" for point in summary_points)}
+                </div>
+                """, unsafe_allow_html=True)
     else:
         st.warning("Please generate a prediction first!")
+
+def summarize_feedback(feedback_text, model):
+    """
+    Summarize feedback into bullet points and determine issue status using Gemini
+    """
+    if not feedback_text:
+        return [], "UNRESOLVED"
+        
+    prompt = f"""
+    Analyze this system feedback and:
+    1. Extract key points as bullet points (maximum 5 points)
+    2. Determine if the issues are RESOLVED or UNRESOLVED based on the content
+    
+    Feedback text:
+    {feedback_text}
+    
+    Format response as:
+    STATUS: RESOLVED or UNRESOLVED
+    POINTS:
+    - point 1
+    - point 2
+    etc.
+    """
+    
+    try:
+        response = model.generate_content(prompt)
+        content = response.text.strip()
+        
+        # Parse the response
+        status_line = content.split('\n')[0]
+        status = "RESOLVED" if "RESOLVED" in status_line else "UNRESOLVED"
+        
+        # Extract bullet points
+        points = [point.strip('- ').strip() 
+                 for point in content.split('\n') 
+                 if point.strip().startswith('-')]
+        
+        return points, status
+    except Exception as e:
+        st.error(f"Error summarizing feedback: {e}")
+        return [feedback_text], "UNRESOLVED"
 
 def show_reports_tab():
     st.title("Saved Reports")
     reports = get_saved_reports()
 
-    # Add search and filter options
-    search_term = st.text_input("Search reports by content:")
-    status_filter = st.multiselect("Filter by System State:", ["NORMAL", "WARNING", "CRITICAL"])
+    # Enhanced search and filter options
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        search_term = st.text_input("Search reports by content:")
+    with col2:
+        status_filter = st.multiselect("Filter by System State:", ["NORMAL", "WARNING", "CRITICAL"])
+    with col3:
+        issue_status_filter = st.multiselect("Filter by Issue Status:", ["RESOLVED", "UNRESOLVED"])
 
     filtered_reports = reports
     if search_term:
@@ -396,65 +464,136 @@ def show_reports_tab():
             filtered_reports['report_text'].str.contains(search_term, case=False, na=False)
         ]
     if status_filter:
-        # Convert filter to match exact system states
         filtered_reports = filtered_reports[filtered_reports['System_State'].isin(status_filter)]
+    if issue_status_filter:
+        filtered_reports = filtered_reports[filtered_reports['issue_status'].isin(issue_status_filter)]
+
+    def summarize_feedback(feedback_text):
+        """Convert feedback text into bullet points"""
+        sentences = [s.strip() for s in feedback_text.split('.') if s.strip()]
+        key_points = []
+        for sentence in sentences[:3]:
+            point = sentence.strip().replace('\n', ' ')
+            if point:
+                key_points.append(point)
+        return key_points
 
     # Display reports in an expandable format
-    for _, report in filtered_reports.iterrows():
-        # Color code the expander based on system state
-        status_color = {
+    for idx, report in filtered_reports.iterrows():
+        system_state_color = {
             "NORMAL": "green",
             "WARNING": "orange",
             "CRITICAL": "red"
         }.get(report['System_State'], "gray")
         
-        with st.expander(
-            f"Report from {report['Date_and_Time']} - System State: {report['System_State']}"
-        ):
+        issue_status = report.get('issue_status', 'UNRESOLVED')
+        issue_color = "green" if issue_status == "RESOLVED" else "red"
+        
+        header = (
+            f"<div style='display: flex; justify-content: space-between; align-items: center; padding: 10px;'>"
+            f"<span>Report from {report['Date_and_Time']}</span>"
+            f"<span>"
+            f"<span style='color: {system_state_color}; margin-right: 15px;'>System: {report['System_State']}</span>"
+            f"<span style='color: {issue_color};'>Status: {issue_status}</span>"
+            f"</span>"
+            f"</div>"
+        )
+        
+        st.markdown(header, unsafe_allow_html=True)
+        
+        with st.expander("View Details"):
             # System Metrics Section
             st.markdown("### System Metrics")
             col1, col2 = st.columns(2)
             
             with col1:
-                st.text(f"CPU Utilization: {report['CPU_Utilization']}%")
-                st.text(f"Memory Usage: {report['Memory_Usage']}%")
-                st.text(f"Grid Voltage: {report['Grid_Voltage']} V")
-                st.text(f"Cooling Temperature: {report['Cooling_Temperature']}°C")
+                metrics = {
+                    "CPU Utilization": f"{report['CPU_Utilization']}%",
+                    "Memory Usage": f"{report['Memory_Usage']}%",
+                    "Grid Voltage": f"{report['Grid_Voltage']} V",
+                    "Cooling Temperature": f"{report['Cooling_Temperature']}°C"
+                }
+                for label, value in metrics.items():
+                    st.markdown(f"**{label}:** {value}")
             
             with col2:
-                st.text(f"Network Traffic Volume: {report['Network_Traffic_Volume']} Mbps")
-                st.text(f"Error Rates: {report['Error_Rates']}%")
-                st.text(f"Network Availability: {report['Network_Availability']}%")
+                metrics = {
+                    "Network Traffic Volume": f"{report['Network_Traffic_Volume']} Mbps",
+                    "Error Rates": f"{report['Error_Rates']}%",
+                    "Network Availability": f"{report['Network_Availability']}%"
+                }
+                for label, value in metrics.items():
+                    st.markdown(f"**{label}:** {value}")
 
             # Network Metrics Section
             st.markdown("### Network Metrics")
             col3, col4 = st.columns(2)
             
             with col3:
-                st.text(f"Bandwidth Utilization: {report['Bandwidth_Utilization']} Mbps")
-                st.text(f"Throughput: {report['Throughput']} Mbps")
-                st.text(f"Latency: {report['Latency']} ms")
-                st.text(f"Jitter: {report['Jitter']} ms")
+                metrics = {
+                    "Bandwidth Utilization": f"{report['Bandwidth_Utilization']} Mbps",
+                    "Throughput": f"{report['Throughput']} Mbps",
+                    "Latency": f"{report['Latency']} ms",
+                    "Jitter": f"{report['Jitter']} ms"
+                }
+                for label, value in metrics.items():
+                    st.markdown(f"**{label}:** {value}")
             
             with col4:
-                st.text(f"Packet Loss: {report['Packet_Loss']}%")
-                st.text(f"Connection Times: {report['Connection_Establishment_Termination_Times']} ms")
-                st.text(f"Transmission Delay: {report['Transmission_Delay']} ms")
+                metrics = {
+                    "Packet Loss": f"{report['Packet_Loss']}%",
+                    "Connection Times": f"{report['Connection_Establishment_Termination_Times']} ms",
+                    "Transmission Delay": f"{report['Transmission_Delay']} ms"
+                }
+                for label, value in metrics.items():
+                    st.markdown(f"**{label}:** {value}")
 
-            # Report Text Section
+            # Full Report Section
             if report['report_text']:
                 st.markdown("### Full Report")
-                st.text(report['report_text'])
+                report_html = f"{report['report_text'].replace(chr(10), '<br>')}"
+                st.markdown(report_html, unsafe_allow_html=True)
 
             # Feedback Section
             if 'feedback' in report and pd.notna(report['feedback']):
-                st.markdown("### Additional Feedback")
-                st.text(report['feedback'])
+                st.markdown("### Feedback Analysis")
+                
+                original_feedback = report['feedback']
+                if 'Original Feedback:' in original_feedback:
+                    feedback_parts = original_feedback.split('Original Feedback:')
+                    summary_text = feedback_parts[0]
+                    original_text = feedback_parts[1] if len(feedback_parts) > 1 else ''
+                else:
+                    summary_text = original_feedback
+                    original_text = ''
 
-            # Delete Button
+                # Generate bullet-point summary
+                key_points = summarize_feedback(summary_text)
+                
+                summary_html = (
+                    f"<div style='border-left: 5px solid {issue_color}; padding-left: 15px;'>"
+                    "<ul style='margin: 0; padding-left: 20px;'>"
+                )
+                for point in key_points:
+                    summary_html += f"<li>{point}</li>"
+                summary_html += "</ul></div>"
+                                    
+                st.markdown(summary_html, unsafe_allow_html=True)
+
             if st.button("Delete Report", key=f"delete_{report['id']}"):
                 delete_report(report['id'])
+                st.success("Report deleted successfully!")
                 st.rerun()
+
+        # Original Feedback Section (at same level as main expander)
+        if 'feedback' in report and pd.notna(report['feedback']):
+            with st.expander("View Original Feedback"):
+                if original_text:
+                    st.markdown(original_text)
+                else:
+                    st.markdown(original_feedback)
+
+        st.markdown("---")  # Add separator between reports
 
 def show_qa_tab(model):
     st.title("Q&A System")
