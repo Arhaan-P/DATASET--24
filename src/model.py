@@ -14,8 +14,8 @@ def predict(CPU_Utilization, Memory_Usage, Bandwidth_Utilization,
     2 - CRITICAL
     """
     # Load the trained model and scaler
-    model = joblib.load('Model.joblib')
-    scaler = joblib.load('Scaler.joblib')
+    model = joblib.load('../Models/Model.joblib')
+    scaler = joblib.load('../Models/Scaler.joblib')
 
     # Create input array in the correct order
     input_features = [

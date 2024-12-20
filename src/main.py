@@ -5,7 +5,7 @@ from datetime import datetime
 import google.generativeai as genai
 import os
 from dotenv import load_dotenv
-from model import predict
+from src.model import predict
 
 def get_status_color(status):
     return {
@@ -24,9 +24,13 @@ def configure_genai():
     genai.configure(api_key=api_key)
     model = genai.GenerativeModel("gemini-pro")
     return model
+import sqlite3
+import os
 
 def create_database():
-    conn = sqlite3.connect('system_reports.db')
+    # Define the database path
+    db_path = os.path.join(os.path.dirname(__file__), '..', 'Database', 'system_reports.db')
+    conn = sqlite3.connect(db_path)
     c = conn.cursor()
     
     # Check if the table exists

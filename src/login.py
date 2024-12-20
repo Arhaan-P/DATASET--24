@@ -1,7 +1,7 @@
 import streamlit as st
 import json
 import os
-from main import main
+from src.main import main
 
 def load_credentials():
     if not os.path.exists("credentials.json"):
