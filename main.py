@@ -592,9 +592,7 @@ def show_reports_tab(current_username):
 
     filtered_reports = reports
     if search_term:
-        filtered_reports = filtered_reports[
-            filtered_reports['report_text'].str.contains(search_term, case=False, na=False)
-        ]
+        filtered_reports = filtered_reports[filtered_reports['report_text'].str.contains(search_term, case=False, na=False)]
     if status_filter:
         filtered_reports = filtered_reports[filtered_reports['System_State'].isin(status_filter)]
     if issue_status_filter:
@@ -612,19 +610,27 @@ def show_reports_tab(current_username):
 
     def get_trust_warning(trust_score, total_votes):
         """Return appropriate warning message based on trust score and vote count"""
+        trust_color = "green"  # Default color for trust score
+        warning_message = ""
+        warning_icon = ""
+
         if total_votes >= 10:  # Significant number of votes
-            if trust_score < 30:
-                return ("🚫 Highly Untrusted Report", "red", 
-                       "This report has been flagged as potentially unreliable by multiple users.")
-            elif trust_score < 50:
-                return ("⚠️ Low Trust Report", "orange",
-                       "This report has received mixed feedback from users.")
+            if trust_score < 40:  # Adjusted threshold for large number of votes
+                trust_color = "red"
+                warning_message = "This report has been flagged as potentially unreliable by multiple users."
+                warning_icon = "🚫 Highly Untrusted Report"
+            elif trust_score < 60:  # Moderate threshold for large number of votes
+                trust_color = "orange"
+                warning_message = "This report has received mixed feedback from users."
+                warning_icon = "⚠️ Low Trust Report"
         elif total_votes >= 5:  # Moderate number of votes
-            if trust_score < 40:
-                return ("⚠️ Warning: Low Trust Score", "orange",
-                       "This report has received several negative ratings.")
-        return None
-    
+            if trust_score < 50:  # Adjusted threshold for smaller number of votes
+                trust_color = "red"
+                warning_message = "This report has received several negative ratings."
+                warning_icon = "⚠️ Warning: Low Trust Score"
+
+        return warning_icon, trust_color, warning_message
+
     # Display reports in an expandable format
     for idx, report in filtered_reports.iterrows():
         system_state_color = {
@@ -639,18 +645,14 @@ def show_reports_tab(current_username):
         total_votes = report['upvotes'] + report['downvotes']
         trust_score = (report['upvotes'] / total_votes * 100) if total_votes > 0 else 100
         
-        if total_votes > 0:
-            downvote_percentage = (report['downvotes'] / total_votes) * 100
-            is_trustworthy = downvote_percentage <= 50
-        else:
-            is_trustworthy = True 
-
-        username = report.get('username', 'Unknown User')
+        trust_warning, trust_color, _ = get_trust_warning(trust_score, total_votes)
+        
+        # Display header with system state and issue status
         header = (
             f"<div style='display: flex; flex-direction: column; padding: 10px;'>"
             f"<div style='display: flex; justify-content: space-between; align-items: center;'>"
             f"<div>"
-            f"<span style='font-weight: bold; margin-right: 15px;'>Report by: {username}</span>"
+            f"<span style='font-weight: bold; margin-right: 15px;'>Report by: {report['username']}</span>"
             f"<span>Date: {report['Date_and_Time']}</span>"
             f"</div>"
             f"<div>"
@@ -660,23 +662,22 @@ def show_reports_tab(current_username):
             f"</div>"
         )
         
-        if total_votes > 0:
-            trust_warning = get_trust_warning(trust_score, total_votes)
-            if trust_warning:
-                warning_icon, warning_color, warning_message = trust_warning
-                header += (
-                    f"<div style='margin-top: 10px; padding: 8px; background-color: rgba(255,0,0,0.1); "
-                    f"border-left: 4px solid {warning_color}; margin-bottom: 10px;'>"
-                    f"<span style='color: {warning_color}; font-weight: bold;'>{warning_icon}</span> "
-                    f"<span style='color: {warning_color};'>{warning_message}</span>"
-                    f"</div>"
-                )
+        # Add trust warning if necessary
+        if trust_warning:
+            warning_icon, warning_color, warning_message = trust_warning
+            header += (
+                f"<div style='margin-top: 10px; padding: 8px; background-color: rgba(255,0,0,0.1); "
+                f"border-left: 4px solid {warning_color}; margin-bottom: 10px;'>"
+                f"<span style='color: {warning_color}; font-weight: bold;'>{warning_icon}</span> "
+                f"<span style='color: {warning_color};'>{warning_message}</span>"
+                f"</div>"
+            )
         
         header += "</div>"
         
         st.markdown(header, unsafe_allow_html=True)
         
-         # Add voting buttons and display vote counts
+        # Add voting buttons and display vote counts
         col1, col2, col3 = st.columns([1, 1, 8])
         with col1:
             if st.button("👍", key=f"upvote_{report['id']}"):
@@ -690,11 +691,24 @@ def show_reports_tab(current_username):
                     st.rerun()
             st.write(f"{report['downvotes']} downvotes")
         
-        # Add trust score bar
-        if total_votes > 0:
+        # Add trust score bar using custom styling
+        if total_votes >= 4:
             trust_score = (report['upvotes'] / total_votes) * 100
             with col3:
-                st.progress(trust_score / 100)
+                # Assign color based on trust score
+                if trust_score < 50:
+                    trust_color = "red"
+                elif trust_score < 60:
+                    trust_color = "orange"
+                else:
+                    trust_color = "green"
+
+                # Create a custom progress bar with dynamic color
+                st.markdown(f"""
+                    <div style="height: 20px; width: 100%; background-color: #e0e0e0; border-radius: 5px;">
+                        <div style="height: 100%; width: {trust_score}%; background-color: {trust_color}; border-radius: 5px;"></div>
+                    </div>
+                """, unsafe_allow_html=True)
                 st.write(f"Trust Score: {trust_score:.1f}% ({total_votes} votes)")
         
         with st.expander("View Details"):
@@ -791,6 +805,7 @@ def show_reports_tab(current_username):
             st.rerun()
 
         st.markdown("---")  # Add separator between reports
+
         
 def show_qa_tab(model):
     st.title("Q&A System")
